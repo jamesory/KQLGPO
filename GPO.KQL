@@ -1,0 +1,28 @@
+// DataTable for Group Policy Name and GUIDS
+let GPIDs = datatable (id: int, name: string, ID: string)
+    [
+    0, "GPO0", "2f4f2c37-9860-4c65-ae06-01a7f33915e6",
+    1, "GPO1", "055a02fe-8e4b-4914-a8fb-16890c916e0e",
+    2, "GPO2", "eb71f282-760c-4cd8-8171-68c80cf6c90b",
+    3, "GPO3", "6c17625b-f335-4e6d-804c-c3ce0cd51ce5",
+    4, "GPO4", "3a029b8a-7f26-4bdb-af50-645af9a7d423",
+    5, "GPO5", "2fcbf2e3-6d9a-45bd-98aa-f46f40f3db57",
+    6, "GPO6", "ad9921f4-36b4-4a7e-bc55-cf2cb84a4303",   
+    7, "GPO7", "0a01a6e2-d9c1-433c-9e1b-89fd316d3ed5"
+];
+SecurityEvent
+| where EventID == 5136 or EventID == 5137 or EventID == 5139 or EventID == 5141
+| where EventData contains "grouppolicy"
+| extend EvData = parse_xml(EventData)
+| extend CN_Path = tostring(parse_json(tostring(parse_json(tostring(EvData.EventData)).Data))[8].["#text"])
+| extend FirstCN = split(CN_Path, ',')[0]  // Splitting the path and taking the first part which includes the CN of interest
+| extend CN_Value = tostring(split(FirstCN, '=')[1])  // Ensure CN_Value is treated as string
+| extend CleanCN_Value = replace_string(tostring(CN_Value), "{", "")  // Explicitly convert CN_Value to string and remove '{'
+| extend CleanCN_Value = replace_string(tostring(CleanCN_Value), "}", "")  // Again ensure CleanCN_Value is treated as string and remove '}'
+| extend LowercaseCleanCN = tolower(CleanCN_Value) // Convert to lowercase for case-insensitive comparison
+| lookup kind=leftouter GPIDs on $left.LowercaseCleanCN == ($right.ID) // Use tolower on both sides
+| extend
+    TimeGenerated,
+    OriginalCN = CN_Value,
+    GroupPolicy = coalesce(name, CN_Value)  // Displays the name if found, otherwise the original CN value
+| project Account, Activity, GroupPolicy
